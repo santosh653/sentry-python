@@ -574,11 +574,15 @@ class Transaction(Span):
                 logger.warning("Discarding transaction without sampling decision.")
             return None
 
-        finished_spans = [
-            span.to_json()
-            for span in self._span_recorder.spans
-            if span is not self and span.timestamp is not None
-        ]
+        finished_spans = []
+        for span in self._span_recorder.spans:
+            # we do this to break the circular reference of transaction -> span
+            # recorder -> span -> containing transaction (which is where we
+            # started) before either the spans or the transaction goes out of
+            # scope and has to be garbage collected
+            span._containing_transaction = None
+            if span is not self and span.timestamp is not None:
+                finished_spans.append(span.to_json())
 
         return hub.capture_event(
             {
