@@ -161,7 +161,6 @@ def test_circular_references(sentry_init, request):
     request.addfinalizer(gc.enable)
     request.addfinalizer(lambda: gc.set_debug(~gc.DEBUG_LEAK))
 
-
     sentry_init(traces_sample_rate=1.0)
 
     with start_transaction(name="dogpark") as dogpark_transaction:
