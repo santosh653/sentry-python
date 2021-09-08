@@ -153,76 +153,35 @@ def test_finds_non_orphan_span_on_scope(sentry_init):
     assert scope._span.op == "sniffing"
 
 
-# TODO: We have a circular reference somewhere in how we store transactions and
-# spans. This test was originally written to validate setting
-# `span._containing_transaction = None` for all of a transaction's spans, but it
-# fails on commits even before `_containing_transaction` was introduced. (Try
-# checking out 874a46799ff771c5406e5d03fa962c2e835ce1bc and adding this test,
-# with all of the debug printing (which is currently commented out) commented
-# in. You'll see that even in the absence of `_containing_transaction`, calling
-# `transaction.finish` leads to there being 30 things which need garbage
-# collecting.)
-@pytest.mark.xfail
 def test_circular_references(sentry_init, request):
-
-    # print("initial gc.garbage:", gc.garbage)
-
-    # print("\n(top of function) collecting...")
-    # num_collected = gc.collect()
-    # print("number of items collected:", num_collected)
-    # if num_collected > 0:
-    #     print("gc.garbage after collection:", gc.garbage)
-
-    # gc.set_debug(gc.DEBUG_LEAK)
-
-    gc.collect()  # if debugging, comment this out in favor of the `num_collected` line above
     gc.disable()
+    gc.collect()
+    gc.set_debug(gc.DEBUG_LEAK)
+
     request.addfinalizer(gc.enable)
+    request.addfinalizer(lambda: gc.set_debug(~gc.DEBUG_LEAK))
+
 
     sentry_init(traces_sample_rate=1.0)
 
-    dogpark_transaction = start_transaction(name="dogpark")
+    with start_transaction(name="dogpark") as dogpark_transaction:
+        with start_span(op="sniffing") as sniffing_span:
+            pass
 
-    # at some point, you have to stop sniffing - there are balls to chase! - so
-    # this span will end while the "dogpark" transaction is still open
-    sniffing_span = dogpark_transaction.start_child(op="sniffing")
-    # the wagging, however, continues long past the dogpark, so this span will
-    # not finish before the transaction ends
-    wagging_span = dogpark_transaction.start_child(op="wagging")
+        del sniffing_span
 
-    sniffing_span.finish()
+        with start_span(op="wagging") as wagging_span:
+            pass
 
-    # print("\n(about to finish transaction) collecting...")
-    # num_collected = gc.collect()
-    # print("number of items collected:", num_collected)
-    # if num_collected > 0:
-    #     print("gc.garbage after collection:", gc.garbage)
-
-    dogpark_transaction.finish()
-
-    # print("\n(just finished transaction, about to delete transaction) collecting...")
-    # num_collected = gc.collect()
-    # print("number of items collected:", num_collected)
-    # if num_collected > 0:
-    #     print("gc.garbage after collection:", gc.garbage)
+        del wagging_span
 
     del dogpark_transaction
 
-    # print("\n(just deleted transaction) collecting...")
-    # num_collected = gc.collect()
-    # print("number of items collected:", num_collected)
-    # if num_collected > 0:
-    #     print("gc.garbage after collection:", gc.garbage)
-
-    wagging_span.finish()
-
-    # print("\n(finished dangling span) collecting...")
-    # num_collected = gc.collect()
-    # print("number of items collected:", num_collected)
-    # if num_collected > 0:
-    #     print("gc.garbage after collection:", gc.garbage)
-
-    assert gc.collect() == 0
+    # TODO: there is a circular reference in serializer.py between the two
+    # closures _serialize_node and _serialize_node_impl. Ideally we would not
+    # have that, but in the presence of it we should not strain the GC any
+    # further so this number should not go up.
+    assert gc.collect() == 29
 
 
 # TODO (kmclb) remove this test once tracestate is a real feature

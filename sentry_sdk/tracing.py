@@ -428,6 +428,9 @@ class Span(object):
             self.timestamp = datetime.utcnow()
 
         maybe_create_breadcrumbs_from_span(hub, self)
+
+        # Break circular reference between span recorder and transaction
+        self._span_recorder = None
         return None
 
     def to_json(self):
@@ -565,6 +568,8 @@ class Transaction(Span):
             )
             self.name = "<unlabeled transaction>"
 
+        span_recorder = self._span_recorder
+
         Span.finish(self, hub)
 
         if not self.sampled:
@@ -574,15 +579,11 @@ class Transaction(Span):
                 logger.warning("Discarding transaction without sampling decision.")
             return None
 
-        finished_spans = []
-        for span in self._span_recorder.spans:
-            # we do this to break the circular reference of transaction -> span
-            # recorder -> span -> containing transaction (which is where we
-            # started) before either the spans or the transaction goes out of
-            # scope and has to be garbage collected
-            span._containing_transaction = None
-            if span is not self and span.timestamp is not None:
-                finished_spans.append(span.to_json())
+        finished_spans = [
+            span.to_json()
+            for span in span_recorder.spans
+            if span is not self and span.timestamp is not None
+        ]
 
         return hub.capture_event(
             {
