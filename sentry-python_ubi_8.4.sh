@@ -27,9 +27,9 @@ if [ -d "sentry-python" ] ; then
 fi
 
 # Install Dependent S/W
-sudo dnf install -y python36
-sudo dnf install -y git
 sudo dnf install -y wget
+yum update
+yum install -y git python36 make python3-devel gcc gcc-c++
 
 # Download the repos
 git clone https://github.com/getsentry/sentry-python
@@ -48,7 +48,7 @@ else
  exit
 fi
 
-sudo pip3 install tox
+pip3 install tox
 
 ret=$?
 
@@ -56,5 +56,5 @@ if [ $ret -ne 0 ] ; then
  echo "dependency python pkg install failed "
  exit
 else
-  tox -e py36
+  tox -e py3.6
 fi
